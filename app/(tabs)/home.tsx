@@ -13,15 +13,20 @@ import {
   Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 
-type Exercise = {
+interface Exercise {
   id: string;
   name: string;
-};
+}
 
-type WeightsMap = {
+interface WeightsMap {
   [key: string]: number;
-};
+}
+
+interface ExpandedMap {
+  [key: string]: boolean;
+}
 
 const EXERCISES: Exercise[] = [
   { id: '1', name: 'Bench Press' },
@@ -31,71 +36,174 @@ const EXERCISES: Exercise[] = [
   { id: '5', name: 'Barbell Row' },
 ];
 
-const STEP_VALUES = Array.from({ length: 81 }, (_, i) => i * 2.5);
 const ITEM_WIDTH = 90;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// Enable LayoutAnimation on Android
-if (
-  Platform.OS === 'android' &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  try {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  } catch (e) {
+    console.warn('LayoutAnimation not supported');
+  }
 }
+
+const roundToNearest = (value: number, step: number) =>
+  Math.round(value / step) * step;
+
+const getStepValues = (currentDisplayWeight: number = 0, unit: 'lbs' | 'kg' = 'lbs'): number[] => {
+  const buffer = unit === 'kg' ? 25 : 50;
+  const step = unit === 'kg' ? 1 : 2.5;
+  const maxLimit = unit === 'kg' ? 206 : 1000;
+
+  // Ensure min and max are valid numbers
+  const min = Math.max(0, currentDisplayWeight - buffer);
+  const max = Math.min(currentDisplayWeight + buffer, maxLimit);
+
+  const steps = [];
+  // If min > max (edge case), fallback to at least one value
+  if (min > max) {
+    steps.push(min);
+    return steps;
+  }
+
+  for (let i = min; i <= max; i += step) {
+    steps.push(parseFloat(i.toFixed(1)));
+  }
+  // If somehow empty, push default 0
+  if (steps.length === 0) steps.push(0);
+  return steps;
+};
 
 const ExerciseList: React.FC = () => {
   const [weights, setWeights] = useState<WeightsMap>({});
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<ExpandedMap>({});
+  const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs');
   const flatListRefs = useRef<Record<string, FlatList<number> | null>>({});
 
   useEffect(() => {
-    const loadWeights = async () => {
-      const stored = await AsyncStorage.getItem('exerciseWeights');
-      if (stored) setWeights(JSON.parse(stored));
+    const loadData = async () => {
+      try {
+        const storedWeights = await AsyncStorage.getItem('exerciseWeights');
+        if (storedWeights) setWeights(JSON.parse(storedWeights));
+
+        const storedUnit = await AsyncStorage.getItem('unit');
+        if (storedUnit === 'kg' || storedUnit === 'lbs') setUnit(storedUnit);
+      } catch (e) {
+        console.error('Failed to load data', e);
+      }
     };
-    loadWeights();
+    loadData();
   }, []);
 
   useEffect(() => {
-    // Scroll to selected weight when weights or expanded change
     EXERCISES.forEach((exercise) => {
       if (expanded[exercise.id]) {
-        const selectedIndex = STEP_VALUES.indexOf(weights[exercise.id] ?? 0);
+        const currentWeightLbs = weights[exercise.id] ?? 0;
+        const displayWeight = unit === 'kg'
+          ? Math.round(currentWeightLbs / 2.20462) // ROUND to whole kg here too
+          : currentWeightLbs;
+        const stepValues = getStepValues(displayWeight, unit);
+        const selectedIndex = stepValues.indexOf(displayWeight);
         const ref = flatListRefs.current[exercise.id];
         if (ref && selectedIndex >= 0) {
-          const centerOffset = selectedIndex * ITEM_WIDTH;
-          ref.scrollToOffset({
-            offset: centerOffset,
-            animated: false,
-          });
+          ref.scrollToOffset({ offset: selectedIndex * ITEM_WIDTH, animated: false });
         }
       }
     });
-  }, [weights, expanded]);
+  }, [weights, expanded, unit]);
 
   const toggleExpand = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleUnit = async () => {
+    const newUnit = unit === 'lbs' ? 'kg' : 'lbs';
+
+    // Convert and round all weights on toggle
+    const newWeights: WeightsMap = {};
+    for (const key in weights) {
+      const weight = weights[key];
+
+      if (newUnit === 'kg') {
+        const converted = weight / 2.20462;
+        newWeights[key] = Math.round(converted);  // <-- round to whole kg
+      } else {
+        const converted = weight * 2.20462;
+        newWeights[key] = roundToNearest(converted, 2.5); // round to nearest 2.5 lbs
+      }
+    }
+
+    setUnit(newUnit);
+    setWeights(newWeights);
+
+    try {
+      await AsyncStorage.setItem('unit', newUnit);
+      await AsyncStorage.setItem('exerciseWeights', JSON.stringify(newWeights));
+    } catch (e) {
+      console.error('Failed to save unit or weights', e);
+    }
   };
 
   const handleScrollEnd = (exerciseId: string) => (
     event: NativeSyntheticEvent<NativeScrollEvent>
   ) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const centerIndex = Math.round(offsetX / ITEM_WIDTH);
-    const newValue = STEP_VALUES[centerIndex];
-    if (newValue !== weights[exerciseId]) {
-      const updated = { ...weights, [exerciseId]: newValue };
-      setWeights(updated);
-      AsyncStorage.setItem('exerciseWeights', JSON.stringify(updated));
+    try {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const currentWeightLbs = weights[exerciseId] ?? 0;
+
+      const displayWeight = unit === 'kg'
+        ? Math.round(currentWeightLbs / 2.20462)
+        : currentWeightLbs;
+
+      const stepValues = getStepValues(displayWeight, unit);
+
+      if (!stepValues || stepValues.length === 0) {
+        console.warn(`No step values for exercis ${exerciseId}`);
+        return;
+      }
+
+      const centerIndex = Math.round(offsetX / ITEM_WIDTH);
+      const selectedDisplayWeight = stepValues[centerIndex] ?? stepValues[0];
+
+      if (selectedDisplayWeight === undefined) {
+        console.warn('Selected display weight is undefined, fallback to 0');
+        return;
+      }
+
+      const newValueLbs = unit === 'kg'
+        ? selectedDisplayWeight * 2.20462
+        : selectedDisplayWeight;
+
+      // Ensure newValueLbs is a valid number before calling toFixed
+      if (typeof newValueLbs !== 'number' || isNaN(newValueLbs)) {
+        console.warn('newValueLbs is not a number:', newValueLbs);
+        return;
+      }
+
+      const rounded = parseFloat(newValueLbs.toFixed(1));
+
+      if (rounded !== currentWeightLbs) {
+        Haptics.selectionAsync();
+        const updated = { ...weights, [exerciseId]: rounded };
+        setWeights(updated);
+        AsyncStorage.setItem('exerciseWeights', JSON.stringify(updated)).catch((e) => {
+          console.error('Failed to save weight', e);
+        });
+      }
+    } catch (e) {
+      console.error('Error in handleScrollEnd:', e);
     }
   };
 
+
   const renderStep = (exerciseId: string, value: number) => {
-    const isSelected = weights[exerciseId] === value;
+    const currentWeightLbs = weights[exerciseId] ?? 0;
+    const selectedDisplay = unit === 'kg'
+      ? Math.round(currentWeightLbs / 2.20462)
+      : currentWeightLbs;
+
+    const isSelected = selectedDisplay === value;
     return (
       <View style={styles.stepWrapper}>
         <Text style={[styles.stepText, isSelected && styles.selectedStep]}>
@@ -107,6 +215,33 @@ const ExerciseList: React.FC = () => {
 
   const renderExercise = ({ item }: { item: Exercise }) => {
     const isExpanded = expanded[item.id];
+    const currentWeightLbs = weights[item.id] ?? 0;
+    const displayWeight = unit === 'kg'
+      ? Math.round(currentWeightLbs / 2.20462)
+      : currentWeightLbs;
+    const stepValues = getStepValues(displayWeight, unit);
+
+    //Weekly Logs
+    const getWeekISO = (date: Date): string => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      const janFirst = new Date(d.getFullYear(), 0, 1);
+      const days = Math.floor((d.getTime() - janFirst.getTime()) / (24 * 60 * 60 * 1000));
+      const week = Math.ceil((days + janFirst.getDay() + 1) / 7);
+      return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+    };
+
+    const logWeeklyProgress = async (exerciseId: string, weight: number) => {
+      const week = getWeekISO(new Date());
+      const existingRaw = await AsyncStorage.getItem('exerciseLogs');
+      const logs = existingRaw ? JSON.parse(existingRaw) : {};
+
+      if (!logs[exerciseId]) logs[exerciseId] = {};
+      logs[exerciseId][week] = weight;
+
+      await AsyncStorage.setItem('exerciseLogs', JSON.stringify(logs));
+    };
+
     return (
       <View style={styles.exerciseContainer}>
         <TouchableOpacity
@@ -115,12 +250,14 @@ const ExerciseList: React.FC = () => {
           activeOpacity={0.7}
         >
           <Text style={styles.exerciseName}>{item.name}</Text>
-          <Text style={styles.weightDisplay}>{weights[item.id] ?? 0} lbs</Text>
+          <Text style={styles.weightDisplay}>
+            {displayWeight} {unit.toUpperCase()}
+          </Text>
         </TouchableOpacity>
 
         {isExpanded && (
           <FlatList
-            data={STEP_VALUES}
+            data={stepValues}
             keyExtractor={(val) => val.toString()}
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -149,6 +286,13 @@ const ExerciseList: React.FC = () => {
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Gym Exercises</Text>
+
+      <TouchableOpacity onPress={toggleUnit} style={styles.unitToggle}>
+        <Text style={styles.unitToggleText}>
+          Toggle Unit: {unit === 'lbs' ? 'LBS' : 'KG'}
+        </Text>
+      </TouchableOpacity>
+
       <FlatList
         data={EXERCISES}
         renderItem={renderExercise}
@@ -174,6 +318,19 @@ const styles = StyleSheet.create({
     color: 'white',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  unitToggle: {
+    backgroundColor: '#00BFFF',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 20,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+  },
+  unitToggleText: {
+    color: '#111',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   exerciseContainer: {
     marginBottom: 30,
