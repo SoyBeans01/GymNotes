@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,22 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-chart-kit';
-
-interface ExerciseLog {
-  [exerciseId: string]: {
-    [weekISO: string]: number;
-  };
-}
+import { Picker } from '@react-native-picker/picker';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface Exercise {
   id: string;
   name: string;
+}
+
+interface WeightsMap {
+  [key: string]: number;
+}
+
+interface ExerciseLog {
+  [exerciseId: string]: {
+    [label: string]: number;
+  };
 }
 
 const EXERCISES: Exercise[] = [
@@ -31,24 +37,62 @@ const EXERCISES: Exercise[] = [
 
 const screenWidth = Dimensions.get('window').width;
 
+const convertWeight = (weightLbs: number, toUnit: 'lbs' | 'kg') => {
+  return toUnit === 'kg' ? Math.round(weightLbs / 2.20462) : weightLbs;
+};
+
 const GraphsScreen: React.FC = () => {
   const [exerciseLogs, setExerciseLogs] = useState<ExerciseLog>({});
+  const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs');
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(EXERCISES[0].id);
   const [loading, setLoading] = useState(true);
+  const tickCount = useRef(0);
 
-  useEffect(() => {
-    const loadLogs = async () => {
+  useFocusEffect(
+  React.useCallback(() => {
+    const loadData = async () => {
       try {
-        const raw = await AsyncStorage.getItem('exerciseLogs');
-        if (raw) {
-          setExerciseLogs(JSON.parse(raw));
-        }
+        const logsRaw = await AsyncStorage.getItem('exerciseLogs');
+        const unitRaw = await AsyncStorage.getItem('unit');
+        if (logsRaw) setExerciseLogs(JSON.parse(logsRaw));
+        if (unitRaw === 'kg' || unitRaw === 'lbs') setUnit(unitRaw);
       } catch (e) {
-        console.error('Failed to load logs', e);
+        console.error('Failed to load logs or unit', e);
       } finally {
         setLoading(false);
       }
     };
-    loadLogs();
+
+    loadData();
+  }, [])
+);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        tickCount.current += 1;
+
+        const weightsRaw = await AsyncStorage.getItem('exerciseWeights');
+        const logsRaw = await AsyncStorage.getItem('exerciseLogs');
+
+        const weights: WeightsMap = weightsRaw ? JSON.parse(weightsRaw) : {};
+        const logs: ExerciseLog = logsRaw ? (JSON.parse(logsRaw) as ExerciseLog) : {};
+
+        const label = `T+${tickCount.current * 30}s`;
+
+        EXERCISES.forEach((ex) => {
+          if (!logs[ex.id]) logs[ex.id] = {};
+          logs[ex.id][label] = weights[ex.id] ?? 0;
+        });
+
+        setExerciseLogs({ ...logs });
+        await AsyncStorage.setItem('exerciseLogs', JSON.stringify(logs));
+      } catch (e) {
+        console.error('Simulation update failed', e);
+      }
+    }, 30_000);
+
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -59,56 +103,60 @@ const GraphsScreen: React.FC = () => {
     );
   }
 
+  const selectedExercise = EXERCISES.find(e => e.id === selectedExerciseId);
+  const logs = exerciseLogs[selectedExerciseId];
+
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.header}>Weekly Progress</Text>
+      <Text style={styles.header}>Exercise Progress ({unit.toUpperCase()})</Text>
 
-      {EXERCISES.map((exercise) => {
-        const logs = exerciseLogs[exercise.id];
-        if (!logs || Object.keys(logs).length === 0) {
-          return (
-            <View key={exercise.id} style={styles.chartContainer}>
-              <Text style={styles.exerciseName}>{exercise.name}</Text>
-              <Text style={styles.noData}>No data available.</Text>
-            </View>
-          );
-        }
+      <Picker
+        selectedValue={selectedExerciseId}
+        onValueChange={(itemValue: string) => setSelectedExerciseId(itemValue)}
+        style={styles.picker}
+        dropdownIconColor="white"
+      >
+        {EXERCISES.map((exercise) => (
+          <Picker.Item key={exercise.id} label={exercise.name} value={exercise.id} />
+        ))}
+      </Picker>
 
-        const sortedWeeks = Object.keys(logs).sort();
-        const weights = sortedWeeks.map((week) => logs[week]);
+      {logs && Object.keys(logs).length > 0 ? (
+        <View style={styles.chartContainer}>
+          <Text style={styles.exerciseName}>{selectedExercise?.name}</Text>
 
-        return (
-          <View key={exercise.id} style={styles.chartContainer}>
-            <Text style={styles.exerciseName}>{exercise.name}</Text>
-
-            <LineChart
-              data={{
-                labels: sortedWeeks.map((w) => w.slice(5)), // e.g. 'W23'
-                datasets: [{ data: weights }],
-              }}
-              width={screenWidth - 30}
-              height={220}
-              yAxisSuffix=" lb"
-              yAxisInterval={1}
-              chartConfig={{
-                backgroundColor: '#111',
-                backgroundGradientFrom: '#111',
-                backgroundGradientTo: '#111',
-                decimalPlaces: 1,
-                color: (opacity = 1) => `rgba(0, 191, 255, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                propsForDots: {
-                  r: '4',
-                  strokeWidth: '2',
-                  stroke: '#00BFFF',
-                },
-              }}
-              bezier
-              style={styles.chart}
-            />
-          </View>
-        );
-      })}
+          <LineChart
+            data={{
+              labels: Object.keys(logs).sort().map(label => label.replace('T+', '').replace('s', 's')),
+              datasets: [{
+                data: Object.keys(logs).sort().map(label =>
+                  convertWeight(logs[label], unit)
+                ),
+              }],
+            }}
+            width={screenWidth - 30}
+            height={220}
+            yAxisSuffix={` ${unit}`}
+            chartConfig={{
+              backgroundColor: '#111',
+              backgroundGradientFrom: '#111',
+              backgroundGradientTo: '#111',
+              decimalPlaces: 1,
+              color: (opacity = 1) => `rgba(0,191,255,${opacity})`,
+              labelColor: () => '#ccc',
+              propsForDots: {
+                r: '4',
+                strokeWidth: '2',
+                stroke: '#00BFFF',
+              },
+            }}
+            bezier={false}
+            style={styles.chart}
+          />
+        </View>
+      ) : (
+        <Text style={styles.noData}>No data for this exercise.</Text>
+      )}
     </ScrollView>
   );
 };
@@ -123,7 +171,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
   },
   header: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
     marginBottom: 20,
@@ -136,10 +184,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#00BFFF',
     marginBottom: 10,
+    textAlign: 'center',
   },
   noData: {
     color: '#888',
     fontStyle: 'italic',
+    textAlign: 'center',
   },
   chart: {
     borderRadius: 10,
@@ -149,5 +199,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#111',
+  },
+  picker: {
+    color: 'white',
+    backgroundColor: '#222',
+    marginBottom: 20,
   },
 });
