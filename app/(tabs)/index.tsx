@@ -1,23 +1,23 @@
+// ExerciseList.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
-  TouchableOpacity,
   TextInput,
   Dimensions,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   LayoutAnimation,
   UIManager,
   Platform,
-  Pressable,
+  TouchableOpacity,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Ionicons } from '@expo/vector-icons';
 
 const router = useRouter();
 
@@ -30,65 +30,43 @@ interface WeightsMap {
   [key: string]: number;
 }
 
-interface ExpandedMap {
-  [key: string]: boolean;
-}
-
 const ITEM_WIDTH = 90;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  try {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-  } catch (e) {
-    console.warn('LayoutAnimation not supported');
-  }
+  UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const roundToNearest = (value: number, step: number) =>
-  Math.round(value / step) * step;
+const roundToNearest = (value: number, step: number) => Math.round(value / step) * step;
+const lbsToKgRounded = (lbs: number): number => Math.round(lbs / 2.20462);
+const kgToLbsRounded = (kg: number): number => roundToNearest(kg * 2.20462, 2.5);
 
-const lbsToKgRounded = (lbs: number): number =>
-  Math.round(lbs / 2.20462);
-
-const kgToLbsRounded = (kg: number): number =>
-  roundToNearest(kg * 2.20462, 2.5);
-
-const getStepValues = (currentDisplayWeight: number = 0, unit: 'lbs' | 'kg' = 'lbs'): number[] => {
+const getStepValues = (currentWeight: number = 0, unit: 'lbs' | 'kg' = 'lbs'): number[] => {
   const buffer = unit === 'kg' ? 25 : 50;
   const step = unit === 'kg' ? 1 : 2.5;
   const maxLimit = unit === 'kg' ? 206 : 1000;
-
-  const min = Math.max(0, currentDisplayWeight - buffer);
-  const max = Math.min(currentDisplayWeight + buffer, maxLimit);
-
+  const min = Math.max(0, currentWeight - buffer);
+  const max = Math.min(currentWeight + buffer, maxLimit);
   const steps = [];
   for (let i = min; i <= max; i += step) {
     steps.push(parseFloat(i.toFixed(1)));
   }
-  if (steps.length === 0) steps.push(0);
-  return steps;
+  return steps.length > 0 ? steps : [0];
 };
 
 const ExerciseList: React.FC = () => {
+  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [weights, setWeights] = useState<WeightsMap>({});
-  const [expanded, setExpanded] = useState<ExpandedMap>({});
-  const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs');
   const [editMode, setEditMode] = useState(false);
-  const [exercises, setExercises] = useState<Exercise[]>([
-    { id: '1', name: 'Bench Press' },
-    { id: '2', name: 'Squat' },
-    { id: '3', name: 'Deadlift' },
-    { id: '4', name: 'Shoulder Press' },
-    { id: '5', name: 'Barbell Row' },
-  ]);
-  const flatListRefs = useRef<Record<string, FlatList<number> | null>>({});
+  const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs');
 
-  // Load weights and unit from AsyncStorage on screen focus
   useFocusEffect(
     useCallback(() => {
       const loadData = async () => {
         try {
+          const storedExercises = await AsyncStorage.getItem('exerciseList');
+          if (storedExercises) setExercises(JSON.parse(storedExercises));
+
           const storedWeights = await AsyncStorage.getItem('exerciseWeights');
           if (storedWeights) setWeights(JSON.parse(storedWeights));
 
@@ -102,193 +80,86 @@ const ExerciseList: React.FC = () => {
     }, [])
   );
 
-  // Scroll weight sliders to saved weight on changes
   useEffect(() => {
-    exercises.forEach((exercise) => {
-      if (expanded[exercise.id]) {
-        const currentWeightLbs = weights[exercise.id] ?? 0;
-        const displayWeight = unit === 'kg'
-          ? lbsToKgRounded(currentWeightLbs)
-          : currentWeightLbs;
-        const stepValues = getStepValues(displayWeight, unit);
-        const selectedIndex = stepValues.indexOf(displayWeight);
-        const ref = flatListRefs.current[exercise.id];
-        if (ref && selectedIndex >= 0) {
-          ref.scrollToOffset({ offset: selectedIndex * ITEM_WIDTH, animated: false });
-        }
-      }
-    });
-  }, [weights, expanded, unit, exercises]);
+    AsyncStorage.setItem('exerciseList', JSON.stringify(exercises));
+  }, [exercises]);
 
-  const toggleExpand = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  // When slider stops scrolling, save selected weight
-  const handleScrollEnd = (exerciseId: string) => (
-    event: NativeSyntheticEvent<NativeScrollEvent>
-  ) => {
-    try {
-      const offsetX = event.nativeEvent.contentOffset.x;
-      const currentWeightLbs = weights[exerciseId] ?? 0;
-      const displayWeight = unit === 'kg'
-        ? lbsToKgRounded(currentWeightLbs)
-        : currentWeightLbs;
-      const stepValues = getStepValues(displayWeight, unit);
-      const centerIndex = Math.round(offsetX / ITEM_WIDTH);
-      const selectedDisplayWeight = stepValues[centerIndex] ?? stepValues[0];
-
-      let newValueLbs = unit === 'kg'
-        ? kgToLbsRounded(selectedDisplayWeight)
-        : roundToNearest(selectedDisplayWeight, 2.5);
-
-      if (newValueLbs !== currentWeightLbs) {
-        Haptics.selectionAsync();
-        const updated = { ...weights, [exerciseId]: newValueLbs };
-        setWeights(updated);
-        AsyncStorage.setItem('exerciseWeights', JSON.stringify(updated)).catch((e) => {
-          console.error('Failed to save weight', e);
-        });
-      }
-    } catch (e) {
-      console.error('Error in handleScrollEnd:', e);
-    }
-  };
-
-  // Add new exercise with empty name
   const handleAddExercise = () => {
     const newExercise: Exercise = {
       id: Date.now().toString(),
       name: '',
     };
-    setExercises(prev => [...prev, newExercise]);
+    setExercises((prev) => [...prev, newExercise]);
   };
 
-  // Update exercise name on edit
-  const handleNameChange = (id: string, newName: string) => {
-    setExercises(prev =>
-      prev.map(ex => (ex.id === id ? { ...ex, name: newName } : ex))
-    );
-  };
-
-  // Delete exercise and remove weight
   const handleDeleteExercise = (id: string) => {
-    setExercises(prev => prev.filter(ex => ex.id !== id));
-    setWeights(prev => {
-      const updated = { ...prev };
-      delete updated[id];
-      return updated;
-    });
+    setExercises((prev) => prev.filter((e) => e.id !== id));
+    const updatedWeights = { ...weights };
+    delete updatedWeights[id];
+    setWeights(updatedWeights);
+    AsyncStorage.setItem('exerciseWeights', JSON.stringify(updatedWeights));
   };
 
-  // Render each weight step in the slider
-  const renderStep = (exerciseId: string, value: number) => {
-    const currentWeightLbs = weights[exerciseId] ?? 0;
-    const selectedDisplay = unit === 'kg'
-      ? lbsToKgRounded(currentWeightLbs)
-      : currentWeightLbs;
-
-    const isSelected = selectedDisplay === value;
-    return (
-      <View style={styles.stepWrapper}>
-        <Text style={[styles.stepText, isSelected && styles.selectedStep]}>
-          {value}
-        </Text>
-      </View>
-    );
+  const handleNameChange = (id: string, newName: string) => {
+    setExercises((prev) => prev.map((e) => (e.id === id ? { ...e, name: newName } : e)));
   };
 
-  // Render each exercise row
-  const renderExercise = ({ item }: { item: Exercise }) => {
-    const isExpanded = expanded[item.id];
-    const currentWeightLbs = weights[item.id] ?? 0;
-    const displayWeight = unit === 'kg'
-      ? lbsToKgRounded(currentWeightLbs)
-      : currentWeightLbs;
-    const stepValues = getStepValues(displayWeight, unit);
-
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<Exercise>) => {
+    const currentWeight = weights[item.id] ?? 0;
     return (
-      <View style={styles.exerciseContainer}>
-        <View style={styles.exerciseHeader}>
-          <Pressable onPress={() => toggleExpand(item.id)} style={{ flex: 1 }}>
-            {editMode ? (
-              <TextInput
-                style={styles.exerciseNameInput}
-                value={item.name}
-                onChangeText={(text) => handleNameChange(item.id, text)}
-                placeholder="Enter exercise name"
-                placeholderTextColor="#777"
-              />
-            ) : (
-              <Text style={styles.exerciseName}>{item.name || 'Unnamed Exercise'}</Text>
-            )}
-          </Pressable>
+      <View style={[styles.exerciseRow, isActive && styles.activeRow]}>
+        {editMode && (
+          <TouchableOpacity onPressIn={drag} style={styles.dragHandle}>
+            <Ionicons name="menu" size={24} color="#ccc" />
+          </TouchableOpacity>
+        )}
 
-          <Text style={styles.weightDisplay}>
-            {displayWeight} {unit.toUpperCase()}
-          </Text>
-
-          {editMode && (
-            <TouchableOpacity onPress={() => handleDeleteExercise(item.id)} style={styles.deleteButton}>
-              <Text style={styles.deleteButtonText}>❌</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {isExpanded && (
-          <FlatList
-            data={stepValues}
-            keyExtractor={(val) => val.toString()}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            renderItem={({ item: val }) => renderStep(item.id, val)}
-            contentContainerStyle={{
-              paddingHorizontal: SCREEN_WIDTH / 2 - ITEM_WIDTH / 2,
-            }}
-            ref={(ref) => {
-              flatListRefs.current[item.id] = ref;
-            }}
-            snapToInterval={ITEM_WIDTH}
-            decelerationRate="fast"
-            onMomentumScrollEnd={handleScrollEnd(item.id)}
-            getItemLayout={(_, index) => ({
-              length: ITEM_WIDTH,
-              offset: ITEM_WIDTH * index,
-              index,
-            })}
-            style={styles.slider}
+        {editMode ? (
+          <TextInput
+            value={item.name}
+            onChangeText={(text) => handleNameChange(item.id, text)}
+            style={styles.nameInput}
+            placeholder="Exercise Name"
+            placeholderTextColor="#666"
           />
+        ) : (
+          <Text style={styles.exerciseName}>{item.name}</Text>
+        )}
+
+        <Text style={styles.weightDisplay}>{currentWeight} {unit}</Text>
+
+        {editMode && (
+          <TouchableOpacity onPress={() => handleDeleteExercise(item.id)} style={styles.deleteButton}>
+            <Text style={{ color: 'white' }}>✕</Text>
+          </TouchableOpacity>
         )}
       </View>
     );
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Gym Exercises</Text>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={styles.container}>
+        <Text style={styles.header}>Your Exercises</Text>
 
-      <TouchableOpacity style={styles.settingsButton} onPress={() => router.push('/settings')}>
-        <Text style={{ color: 'white' }}>⚙</Text>
-      </TouchableOpacity>
+        <DraggableFlatList
+          data={exercises}
+          onDragEnd={({ data }) => setExercises(data)}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+        />
 
-      <FlatList
-        data={exercises}
-        renderItem={renderExercise}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 30 }}
-      />
+        <View style={styles.footerButtons}>
+          <TouchableOpacity style={styles.addButton} onPress={handleAddExercise}>
+            <Text style={styles.addButtonText}>+ Add Exercise</Text>
+          </TouchableOpacity>
 
-      <View style={styles.footerButtons}>
-        <TouchableOpacity style={styles.addExerciseButton} onPress={handleAddExercise}>
-          <Text style={styles.addExerciseButtonText}>+ Add Exercise</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.editModeButton} onPress={() => setEditMode(prev => !prev)}>
-          <Text style={styles.editButtonText}>{editMode ? 'Done' : 'Edit'}</Text>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.editButton} onPress={() => setEditMode((prev) => !prev)}>
+            <Text style={styles.editButtonText}>{editMode ? 'Done' : 'Edit'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
 };
 
@@ -302,105 +173,75 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
   },
   header: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
     marginBottom: 20,
     textAlign: 'center',
   },
-  exerciseContainer: {
-    marginBottom: 30,
-  },
-  exerciseHeader: {
+  exerciseRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    backgroundColor: '#222',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  activeRow: {
+    backgroundColor: '#333',
+  },
+  dragHandle: {
+    marginRight: 10,
+  },
+  nameInput: {
+    flex: 1,
+    fontSize: 18,
+    color: 'white',
+    borderBottomWidth: 1,
+    borderColor: '#555',
   },
   exerciseName: {
-    fontSize: 20,
+    flex: 1,
+    fontSize: 18,
     color: 'white',
-    fontWeight: '600',
-  },
-  exerciseNameInput: {
-    fontSize: 20,
-    color: 'white',
-    fontWeight: '600',
-    borderBottomWidth: 1,
-    borderColor: '#888',
-    paddingVertical: 2,
   },
   weightDisplay: {
-    fontSize: 22,
     color: '#00BFFF',
     fontWeight: 'bold',
+    fontSize: 16,
     marginHorizontal: 10,
   },
-  slider: {
-    marginTop: 10,
-    height: 50,
-  },
-  stepWrapper: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: ITEM_WIDTH,
-    height: 50,
-  },
-  stepText: {
-    fontSize: 24,
-    color: '#aaa',
-  },
-  selectedStep: {
-    fontSize: 32,
-    color: '#00BFFF',
-    fontWeight: 'bold',
-  },
-  settingsButton: {
-    backgroundColor: '#7a7a7a',
-    paddingHorizontal: 10,
-    padding: 8,
-    borderRadius: 4,
-    position: 'absolute',
-    top: 60,
-    right: 20,
+  deleteButton: {
+    padding: 5,
+    backgroundColor: '#f55',
+    borderRadius: 6,
   },
   footerButtons: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 20,
   },
-  addExerciseButton: {
+  addButton: {
     backgroundColor: '#00BFFF',
     flex: 2,
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 10,
   },
-  addExerciseButtonText: {
+  addButtonText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
   },
-  editModeButton: {
+  editButton: {
     backgroundColor: '#444',
     flex: 1,
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 10,
   },
   editButtonText: {
     color: 'white',
     fontSize: 16,
-  },
-  deleteButton: {
-    marginLeft: 10,
-    backgroundColor: '#ff5555',
-    padding: 6,
-    borderRadius: 6,
-  },
-  deleteButtonText: {
-    color: 'white',
-    fontSize: 14,
   },
 });
