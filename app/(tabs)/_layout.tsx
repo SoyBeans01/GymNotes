@@ -1,20 +1,15 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { IconSymbol } from '@/components/IconSymbol';
 import { PlatformPressable } from '@react-navigation/elements';
 
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: (props) => (
       <PlatformPressable
@@ -34,6 +29,13 @@ export default function TabLayout() {
         name="graphs"
         options={{
           title: 'Data',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.left.forwardslash.chevron.right" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="cardio"
+        options={{
+          title: 'Cardio',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.left.forwardslash.chevron.right" color={color} />,
         }}
       />

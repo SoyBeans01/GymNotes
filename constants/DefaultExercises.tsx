@@ -1,0 +1,28 @@
+import { Exercise } from "@/components/utils/types";
+
+export const DEFAULT_EXERCISES: Exercise[] = [
+    { id: '1', name: 'Lat Pulldown', category: 'Back' },
+    { id: '2', name: 'Rows', category: 'Back' },
+    { id: '3', name: 'Dumbell Curls', category: 'Biceps' },
+    { id: '4', name: 'Preacher Curls', category: 'Biceps' },
+    { id: '5', name: 'Bench Press', category: 'Chest' },
+    { id: '6', name: 'Cable Crossover', category: 'Chest' },
+    { id: '7', name: 'Fly Machine', category: 'Chest' },
+    { id: '8', name: 'Skull Crushers', category: 'Triceps' },
+    { id: '9', name: 'Cable Push-Down', category: 'Triceps' },
+    { id: '10', name: 'Dips', category: 'Triceps' },
+    { id: '11', name: 'Lateral Raises', category: 'Shoulders' },
+    { id: '12', name: 'Shoulder Press', category: 'Shoulders' },
+    { id: '13', name: 'Reverse Fly', category: 'Shoulders' },
+    { id: '14', name: 'Weighted Crunches', category: 'Core' },
+    { id: '15', name: 'Russian Twists', category: 'Core' },
+    { id: '16', name: 'Squat', category: 'Quadriceps' },
+    { id: '17', name: 'Leg Press', category: 'Quadriceps' },
+    { id: '18', name: 'Deadlift', category: 'Hamstrings' },
+    { id: '19', name: 'Leg Curls', category: 'Hamstrings' },
+    { id: '20', name: 'Calf Raises', category: 'Calves' },
+    { id: '21', name: 'Seated Calf Raises', category: 'Calves' },
+    { id: '22', name: 'Hip Abduction', category: 'Glutes' },
+    { id: '23', name: 'Hip Adduction', category: 'Glutes' },
+    { id: '24', name: 'Wrist Curls', category: 'Other' },
+];
