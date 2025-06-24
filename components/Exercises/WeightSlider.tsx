@@ -69,26 +69,39 @@ export const WeightSlider: React.FC<WeightSliderProps> = ({
   }, [selectedIndex]);
 
   const handleScrollEnd = async (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const centerIndex = Math.round(offsetX / ITEM_WIDTH);
-    const selectedDisplayWeight = stepValues[centerIndex] ?? stepValues[0];
+  const offsetX = event.nativeEvent.contentOffset.x;
+  const centerIndex = Math.round(offsetX / ITEM_WIDTH);
 
-    const newValueLbs = unit === 'kg'
-      ? kgToLbsRounded(selectedDisplayWeight)
-      : roundToNearest(selectedDisplayWeight, 2.5);
+  const isOutOfBounds = centerIndex < 0 || centerIndex >= stepValues.length;
+  const clampedIndex = Math.max(0, Math.min(centerIndex, stepValues.length - 1));
 
-    if (newValueLbs !== currentWeightLbs) {
-      Haptics.selectionAsync();
-      const updated = { ...weights, [exerciseId]: newValueLbs };
-      setWeights(updated);
-      try {
-        await saveWeights(updated);
-      } catch (e) {
-        console.error('Failed to save weight', e);
-      }
+  if (isOutOfBounds && flatListRef.current) {
+    // Snap back to closest valid index if scrolled out of bounds
+    flatListRef.current.scrollToOffset({
+      offset: clampedIndex * ITEM_WIDTH,
+      animated: true,
+    });
+    return; // Exit early, no weight update
+  }
+
+  const selectedDisplayWeight = stepValues[clampedIndex];
+
+  const newValueLbs = unit === 'kg'
+    ? kgToLbsRounded(selectedDisplayWeight)
+    : roundToNearest(selectedDisplayWeight, 2.5);
+
+  if (newValueLbs !== currentWeightLbs) {
+    Haptics.selectionAsync();
+    const updated = { ...weights, [exerciseId]: newValueLbs };
+    setWeights(updated);
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      await saveWeights(exerciseId, today, newValueLbs);
+    } catch (e) {
+      console.error('Failed to save weight', e);
     }
-  };
-
+  }
+};
   return (
     <FlatList
       data={stepValues}

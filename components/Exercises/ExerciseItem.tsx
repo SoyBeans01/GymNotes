@@ -19,6 +19,7 @@ interface ExerciseItemProps {
   setWeights: (weights: WeightsMap) => void;
 }
 
+
 export const ExerciseItem: React.FC<ExerciseItemProps> = ({
   item,
   expanded,
@@ -87,7 +88,8 @@ export const ExerciseItem: React.FC<ExerciseItemProps> = ({
         onClose={() => setModalVisible(false)}
         onSave={(newWeight) => {
           setWeights({ ...weights, [item.id]: newWeight });
-          saveWeights({ ...weights, [item.id]: newWeight });
+          const today = new Date().toISOString().split('T')[0];
+          saveWeights(item.id, today, newWeight);
           setModalVisible(false);
         }}
       />

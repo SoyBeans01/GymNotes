@@ -213,25 +213,20 @@ const DietPage = () => {
                 </View>
                 {/* Food Log List */}
                 <View style={[styles.foodLogContainer, { minHeight: foodLog.length * 40 + 70 }]}>
-                    <FlatList
-                        data={foodLog}
-                        keyExtractor={(item) => item.id}
-                        nestedScrollEnabled
-                        renderItem={({ item }) => (
-                            <View style={styles.foodLogItemRow}>
-                                <TouchableOpacity onPress={() => handleEditFood(item)} style={{ flex: 1 }}>
-                                    <Text style={styles.foodLogItem}>
-                                        {item.name} - {item.amount}{item.unit} {'\n'}
-                                        {item.calories} kcal | Protein: {item.protein ?? 0}g | Fat:{' '}
-                                        {item.fat ?? 0}g | Carbs: {item.carbs ?? 0}g
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => handleDeleteFood(item.id)}>
-                                    <Text style={styles.deleteButton}>✕</Text>
-                                </TouchableOpacity>
-                            </View>
-                        )}
-                    />
+                    {foodLog.map((item) => (
+                        <View key={item.id} style={styles.foodLogItemRow}>
+                            <TouchableOpacity onPress={() => handleEditFood(item)} style={{ flex: 1 }}>
+                                <Text style={styles.foodLogItem}>
+                                    {item.name} - {item.amount}{item.unit} {'\n'}
+                                    {item.calories} kcal | Protein: {item.protein ?? 0}g | Fat:{' '}
+                                    {item.fat ?? 0}g | Carbs: {item.carbs ?? 0}g
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => handleDeleteFood(item.id)}>
+                                <Text style={styles.deleteButton}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))}
                     <View style={styles.totalTextContainer}>
                         <Text style={styles.totalText}>
                             Total {'\n'}{totalCalories} kcal | Protein: {totalProtein}g | Fat: {totalFat}g | Carbs: {totalCarbs}g

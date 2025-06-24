@@ -19,6 +19,25 @@ import { saveExercises, loadExercises } from '../utils/Storage';
 import { DEFAULT_EXERCISES } from '@/constants/DefaultExercises';
 import { AddExerciseModal } from './AddExerciseModal';
 
+const flattenLatestWeights = (
+  nestedWeights: Record<string, Record<string, number>>
+): Record<string, number> => {
+  const sortedWeeks = Object.keys(nestedWeights).sort((a, b) => (a > b ? -1 : 1));
+  const latestWeights: Record<string, number> = {};
+
+  for (const week of sortedWeeks) {
+    const exercises = nestedWeights[week];
+    for (const [exercise, weight] of Object.entries(exercises)) {
+      if (!(exercise in latestWeights)) {
+        latestWeights[exercise] = weight;
+      }
+    }
+  }
+
+  return latestWeights;
+};
+
+
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -51,30 +70,34 @@ export const ExerciseList: React.FC = () => {
 
   const [exercises, setExercises] = useState<Exercise[]>(DEFAULT_EXERCISES);
 
-  useFocusEffect(
-    useCallback(() => {
-      const loadData = async () => {
-        try {
-          const storedWeights = await AsyncStorage.getItem('exerciseWeights');
-          if (storedWeights) setWeights(JSON.parse(storedWeights));
-
-          const storedUnit = await AsyncStorage.getItem('unit');
-          if (storedUnit === 'kg' || storedUnit === 'lbs') setUnit(storedUnit);
-
-          const savedExercises = await loadExercises();
-          if (savedExercises.length > 0) {
-            setExercises(savedExercises);
-          } else {
-            setExercises(DEFAULT_EXERCISES);
-            await saveExercises(DEFAULT_EXERCISES); // ← important!
-          }
-        } catch (e) {
-          console.error('Failed to load data', e);
+ useFocusEffect(
+  useCallback(() => {
+    const loadData = async () => {
+      try {
+        const storedWeights = await AsyncStorage.getItem('exerciseWeights');
+        if (storedWeights) {
+          const parsed = JSON.parse(storedWeights);
+          const flatWeights = flattenLatestWeights(parsed);
+          setWeights(flatWeights); // now correctly shaped!
         }
-      };
-      loadData();
-    }, [])
-  );
+
+        const storedUnit = await AsyncStorage.getItem('unit');
+        if (storedUnit === 'kg' || storedUnit === 'lbs') setUnit(storedUnit);
+
+        const savedExercises = await loadExercises();
+        if (savedExercises.length > 0) {
+          setExercises(savedExercises);
+        } else {
+          setExercises(DEFAULT_EXERCISES);
+          await saveExercises(DEFAULT_EXERCISES);
+        }
+      } catch (e) {
+        console.error('Failed to load data', e);
+      }
+    };
+    loadData();
+  }, [])
+);
 
   const handleAddExercise = async () => {
     setCategoryExpanded(prev => ({
