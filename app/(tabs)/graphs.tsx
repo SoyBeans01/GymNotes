@@ -1,8 +1,8 @@
 import React from 'react';
-import WeightChart from '@/components/Graphs/WeightChart';
+import ChartPage from '@/components/Graphs/ChartPage';
 
 const Home = () => {
-  return <WeightChart />;
+  return <ChartPage />;
 };
 
 export default Home;
