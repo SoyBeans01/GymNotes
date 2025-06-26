@@ -32,20 +32,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.left.forwardslash.chevron.right" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="cardio"
-        options={{
-          title: 'Cardio',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.left.forwardslash.chevron.right" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="diet"
-        options={{
-          title: 'Diet',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.right" color={color} />,
-        }}
-      />
     </Tabs>
   );
 }
