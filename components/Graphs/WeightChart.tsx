@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-gifted-charts';
 import { Picker } from '@react-native-picker/picker';
-import { getExerciseHistory, loadUnit } from '../utils/Storage';
+import { getExerciseHistory, loadUnit, getExerciseMonthlyHistory, getExerciseDailyHistory, loadDailyWeights } from '../utils/Storage';
 import { Exercise } from '../utils/types'; // Adjust path if needed
 
 
@@ -22,6 +22,8 @@ const WeightChart = () => {
   const chartPadding = 66;
   const chartWidth = SCREEN_WIDTH - (chartPadding * 2);
 
+  const [mode, setMode] = useState<'weeks' | 'months' | 'daily'>('weeks');
+
   const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs'); // default fallback
 
   useEffect(() => {
@@ -33,84 +35,84 @@ const WeightChart = () => {
   }, []);
 
   // Load available exercises and match them with weights
-  useEffect(() => {
-    const loadExerciseOptions = async () => {
-      try {
-        const weightsData = await AsyncStorage.getItem('exerciseWeights');
-        const exercisesData = await AsyncStorage.getItem('exercises');
+  useFocusEffect(
+    useCallback(() => {
+      const loadExerciseOptions = async () => {
+        try {
+          const weightsRaw = await AsyncStorage.getItem('exerciseWeights');
+          const exRaw = await AsyncStorage.getItem('exercises');
+          if (!exRaw) return;
 
-        if (!weightsData || !exercisesData) return;
+          const allExercises: Exercise[] = JSON.parse(exRaw);
+          const weightsByDate: Record<string, Record<string, number>> = weightsRaw
+            ? (JSON.parse(weightsRaw) as Record<string, Record<string, number>>)
+            : {};
 
-        const weightsByDate: Record<string, Record<string, number>> = JSON.parse(weightsData);
-        const exercises: Exercise[] = JSON.parse(exercisesData);
+          // if you only want those with history:
+          const usedIds = new Set<string>();
+          Object.values(weightsByDate).forEach(e =>
+            Object.keys(e).forEach(id => usedIds.add(id))
+          );
+          const filtered = allExercises.filter(ex => usedIds.has(ex.id));
 
-        // Collect all exercise IDs from weights
-        const usedExerciseIds = new Set<string>();
-        Object.values(weightsByDate).forEach((entry) => {
-          Object.keys(entry).forEach((id) => usedExerciseIds.add(id));
-        });
+          // OR to show every exercise:
+          // const filtered = allExercises;
 
-        // Filter and map to display names
-        const filtered = exercises
-          .filter((ex) => usedExerciseIds.has(ex.id))
-          .map((ex) => ({ id: ex.id, name: ex.name || 'Unnamed' }));
+          setExerciseOptions(
+            filtered.map(ex => ({ id: ex.id, name: ex.name || 'Unnamed' }))
+          );
+          if (!selectedExerciseId && filtered.length) {
+            setSelectedExerciseId(filtered[0].id);
+          }
+        } catch (e) {
+          console.error('Failed to load exercises', e);
+        }
+      };
 
-        setExerciseOptions(filtered);
-        if (filtered.length > 0) setSelectedExerciseId(filtered[0].id);
-      } catch (e) {
-        console.error('Failed to load chart data', e);
-      }
-    };
-
-    loadExerciseOptions();
-  }, []);
+      loadExerciseOptions();
+    }, [selectedExerciseId])  // you can omit selectedExerciseId if you don't want it
+  );
 
   // Update chart when selected exercise changes
   useFocusEffect(
     useCallback(() => {
+      let isActive = true;
+
       const loadChart = async () => {
-        try {
-          const weightsData = await AsyncStorage.getItem('exerciseWeights');
-          const exercisesData = await AsyncStorage.getItem('exercises');
-
-          if (!weightsData || !exercisesData) return;
-
-          const weightsByDate: Record<string, Record<string, number>> = JSON.parse(weightsData);
-          const exercises: Exercise[] = JSON.parse(exercisesData);
-
-          const usedExerciseIds = new Set<string>();
-          Object.values(weightsByDate).forEach((entry) => {
-            Object.keys(entry).forEach((id) => usedExerciseIds.add(id));
-          });
-
-          const filtered = exercises
-            .filter((ex) => usedExerciseIds.has(ex.id))
-            .map((ex) => ({ id: ex.id, name: ex.name || 'Unnamed' }));
-
-          setExerciseOptions(filtered);
-
-          const selectedId = selectedExerciseId || (filtered.length > 0 ? filtered[0].id : '');
-          setSelectedExerciseId(selectedId);
-
-          if (selectedId) {
-            const history = getExerciseHistory(weightsByDate, selectedId);
-            setChartData(history);
-          } else {
-            setChartData([]);
-          }
-
-        } catch (e) {
-          console.error('Failed to refresh chart data', e);
+        const raw = await AsyncStorage.getItem('exerciseWeights');
+        const all = raw ? JSON.parse(raw) : {};
+        if (!selectedExerciseId) {
+          if (isActive) setChartData([]);
+          return;
         }
+
+        let history;
+        if (mode === 'weeks') {
+          history = getExerciseHistory(all, selectedExerciseId);
+        } else if (mode === 'months') {
+          history = getExerciseMonthlyHistory(all, selectedExerciseId);
+        } else {
+          history = getExerciseDailyHistory(all, selectedExerciseId, 6);
+        }
+
+        if (isActive) setChartData(history);
       };
 
       loadChart();
-    }, [selectedExerciseId])
+
+      // cleanup in case the screen loses focus before load finishes:
+      return () => {
+        isActive = false;
+      };
+    }, [selectedExerciseId, mode])
   );
+
 
   const maxWeight = Math.max(...chartData.map((d) => d.value), 0);
   const { step, roundedMax, sections } = getStepSizeAndMax(maxWeight, unit);
-  const sixWeekChartData = chartData.slice(-6);
+  const visibleChartData = mode === 'weeks'
+    ? chartData.slice(-6)
+    : chartData;
 
   function getStepSizeAndMax(
     maxValue: number,
@@ -144,56 +146,6 @@ const WeightChart = () => {
     return { step, roundedMax, sections };
   }
 
-
-
-  // ------------------ TEMPORARY TESTING FUNCTION ------------------
-// ------------------ TEMPORARY TESTING FUNCTION ------------------
-const addFakeDataPoint = async () => {
-   if (!selectedExerciseId) return;
-
-  // Create new data point - e.g. new week label + random value or incremental value
-  const newLabel = chartData.length > 0
-    ? `Week ${chartData.length + 1}`
-    : 'Week 1';
-  const newValue = chartData.length > 0
-    ? chartData[chartData.length - 1].value + 5
-    : 10;
-
-  // New data point with hideDataPoint false so it shows on the chart
-  const newPoint = { label: newLabel, value: newValue, hideDataPoint: false };
-
-  // Updated data array
-  const updatedChartData = [...chartData, newPoint];
-
-  // Update the state to immediately show new point
-  setChartData(updatedChartData);
-
-  try {
-    // Load all weights from AsyncStorage
-    const weightsDataRaw = await AsyncStorage.getItem('exerciseWeights');
-    const weightsData = weightsDataRaw ? JSON.parse(weightsDataRaw) : {};
-
-    // Here, you would save by date. For this temp example, you might fake a date label:
-    // You can replace with your real date system or key
-    const fakeDate = "CDE";
-
-    // Update the data for this exercise for this date
-    if (!weightsData[fakeDate]) weightsData[fakeDate] = {};
-    weightsData[fakeDate][selectedExerciseId] = newValue;
-
-    // Save updated weights back
-    await AsyncStorage.setItem('exerciseWeights', JSON.stringify(weightsData));
-  } catch (e) {
-    console.error('Failed to save test data point', e);
-  }
-};
-// ---------------------------------------------------------------
-
-// ---------------------------------------------------------------
-
-
-
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Weight Progression</Text>
@@ -211,7 +163,26 @@ const addFakeDataPoint = async () => {
 
       <View style={{ alignItems: 'center' }}>
         {/* Y-axis label */}
-        <Text style={styles.chartTitle}>6 Week Progress</Text>
+        <View style={styles.chartTitleRow}>
+          <Text style={styles.chartTitle}>
+            {mode === 'weeks' ? '6 Week Progress'
+              : mode === 'months'
+                ? 'Monthly Progress'
+                : '6 Day Progress'}
+          </Text>
+
+          <Picker
+            selectedValue={mode}
+            onValueChange={(value) => setMode(value)}
+            style={styles.modePicker}
+            dropdownIconColor="#fff"
+          >
+            <Picker.Item label="Daily" value="daily" />
+            <Picker.Item label="Weeks" value="weeks" />
+            <Picker.Item label="Months" value="months" />
+          </Picker>
+        </View>
+
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
 
           <Text style={{ color: '#ccc', marginLeft: 16, writingDirection: 'ltr', transform: [{ rotate: '-90deg' }] }}>
@@ -220,7 +191,7 @@ const addFakeDataPoint = async () => {
 
           {/* Chart itself */}
           <LineChart
-            data={sixWeekChartData}
+            data={visibleChartData}
             width={chartWidth}
             spacing={44}
             thickness={3}
@@ -235,20 +206,19 @@ const addFakeDataPoint = async () => {
             noOfSections={sections}
             //isAnimated
             //animateOnDataChange
-           
+
             maxValue={roundedMax}
           />
         </View>
 
         {/* X-axis label */}
-        <Text style={{ color: '#ccc', marginTop: 4 }}>Weeks</Text>
+        <Text style={{ color: '#ccc', marginTop: 4 }}>
+          {mode === 'weeks' ? 'Weeks'
+            : mode === 'months'
+              ? 'Months'
+              : 'Days'}
+        </Text>
       </View>
-
-      {/* ------------------ TEMPORARY TEST BUTTON ------------------ */}
-<TouchableOpacity style={styles.testButton} onPress={addFakeDataPoint}>
-  <Text style={styles.testButtonText}>Add Test Data Point</Text>
-</TouchableOpacity>
-{/* ----------------------------------------------------------- */}
     </View>
   );
 };
@@ -287,21 +257,21 @@ const styles = StyleSheet.create({
     color: '#aaa',
     marginHorizontal: 20,
   },
+  chartTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    marginLeft: 48,
+    marginTop: 16,
+  },
 
-
-
-  testButton: {
-  alignSelf: 'center',
-  backgroundColor: '#444',
-  paddingVertical: 8,
-  paddingHorizontal: 16,
-  borderRadius: 6,
-  marginBottom: 12,
-},
-testButtonText: {
-  color: '#fff',
-  fontSize: 16,
-},
+  modePicker: {
+    color: '#fff',
+    backgroundColor: '#222',
+    width: 200,
+    height: 36,
+  },
 });
 
 export default WeightChart;

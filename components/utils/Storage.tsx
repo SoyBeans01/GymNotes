@@ -115,4 +115,90 @@ export const getExerciseHistory = (
   return history;
 };
 
+export const getExerciseMonthlyHistory = (
+  all: Record<string, Record<string, number>>,
+  exerciseId: string
+): { label: string; value: number }[] => {
+  // 1. Flatten into array of { date, weight }
+  const entries: { date: string; weight: number }[] = [];
+  for (const [monday, exMap] of Object.entries(all)) {
+    if (exerciseId in exMap) {
+      entries.push({ date: monday, weight: exMap[exerciseId] });
+    }
+  }
+  // 2. Sort ascending by date
+  entries.sort((a, b) => a.date.localeCompare(b.date));
 
+  // 3. Group by 'YYYY-MM', keeping only the last entry in each month
+  const lastPerMonth: Record<string, { date: string; weight: number }> = {};
+  for (const e of entries) {
+    const monthKey = e.date.slice(0, 7);            // 'YYYY-MM'
+    // each time we see a later date in same month, overwrite
+    lastPerMonth[monthKey] = e;
+  }
+
+  // 4. Build result array, sorted by monthKey
+  return Object.entries(lastPerMonth)
+    .sort(([m1], [m2]) => m1.localeCompare(m2))
+    .map(([monthKey, { weight }]) => ({
+      label: monthKey.slice(5),    // '06', '07', etc.
+      value: weight,
+    }));
+};
+
+const DAILY_KEY = 'exerciseWeightsDaily';
+
+export const saveDailyWeight = async (
+  exerciseId: string,
+  dateStr: string,
+  weight: number
+) => {
+  try {
+    const raw = await AsyncStorage.getItem(DAILY_KEY);
+    const all: Record<string, Record<string, number>> = raw
+      ? JSON.parse(raw)
+      : {};
+    if (!all[dateStr]) all[dateStr] = {};
+    all[dateStr][exerciseId] = weight;
+    await AsyncStorage.setItem(DAILY_KEY, JSON.stringify(all));
+  } catch (e) {
+    console.error('saveDailyWeight failed', e);
+  }
+};
+
+/**
+ * Load the raw daily weights map: { 'YYYY-MM-DD': { exerciseId: weight, … }, … }
+ */
+export const loadDailyWeights = async (): Promise<
+  Record<string, Record<string, number>>
+> => {
+  try {
+    const raw = await AsyncStorage.getItem(DAILY_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const getExerciseDailyHistory = (
+  allDaily: Record<string, Record<string, number>>,
+  exerciseId: string,
+  days: number = 6
+): { label: string; value: number }[] => {
+  const result: { label: string; value: number }[] = [];
+  let lastValue = 0;
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const iso = d.toISOString().split('T')[0];     // YYYY-MM-DD
+    const entry = allDaily[iso]?.[exerciseId];
+    if (entry !== undefined) {
+      lastValue = entry;
+    }
+    const label = iso.slice(8);                    // day-of-month "DD"
+    result.push({ label, value: lastValue });
+  }
+
+  return result;
+};

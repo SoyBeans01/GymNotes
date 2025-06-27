@@ -8,37 +8,20 @@ import {
 } from 'react-native';
 
 import WeightChart from './WeightChart';
-import BodyChart from './BodyChart';
-import CardioChart from './CardioChart';
+import GrowthBarChart from './WeightBarChart';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const ChartPage = () => {
   return (
+    <ScrollView>
     <View style={styles.container}>
-      <ScrollView
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContainer}
-      >
         <View style={styles.chartWrapper}>
           <WeightChart />
+          <GrowthBarChart />
         </View>
-        <View style={styles.chartWrapper}>
-          <BodyChart />
-        </View>
-        <View style={styles.chartWrapper}>
-          <CardioChart />
-        </View>
-      </ScrollView>
-
-      {/* Optional arrows below the scroll view */}
-      <View style={styles.arrowsContainer}>
-        <Text style={styles.arrow}>⬅️</Text>
-        <Text style={styles.arrow}>➡️</Text>
-      </View>
     </View>
+    </ScrollView>
   );
 };
 
@@ -47,11 +30,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#111',
   },
-  scrollContainer: {
-    flexGrow: 1,
-  },
   chartWrapper: {
     width: SCREEN_WIDTH,
+    flexGrow: 1,
   },
   arrowsContainer: {
     flexDirection: 'row',

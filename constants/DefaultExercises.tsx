@@ -25,4 +25,5 @@ export const DEFAULT_EXERCISES: Exercise[] = [
     { id: '22', name: 'Hip Abduction', category: 'Glutes' },
     { id: '23', name: 'Hip Adduction', category: 'Glutes' },
     { id: '24', name: 'Wrist Curls', category: 'Other' },
+    { id: '25', name: 'Body Weight', category: 'Other' },
 ];

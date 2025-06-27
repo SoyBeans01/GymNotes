@@ -18,18 +18,25 @@ export default function TabLayout() {
       />
     ),
       }}>
-      <Tabs.Screen
+        <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="H" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="log"
+        options={{
+          title: 'Logs',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="L" color={color} />,
         }}
       />
       <Tabs.Screen
         name="graphs"
         options={{
           title: 'Data',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.left.forwardslash.chevron.right" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="D" color={color} />,
         }}
       />
     </Tabs>
